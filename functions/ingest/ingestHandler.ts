@@ -1,12 +1,18 @@
-import { S3Handler } from 'aws-lambda';
+import { S3Handler } from "aws-lambda";
+import { MongoDBKnowledgeBase } from "./MongoDBKnowledgeBase";
+import { MongoClient, ServerApiVersion } from "mongodb";
+
+const mdbConnString = process.env.MONGODB_CONN_STRING ?? ''
+const mongoClient = new MongoClient(mdbConnString, { serverApi: ServerApiVersion.v1 });
+mongoClient.connect();
+const mdbKnowledgeBase = new MongoDBKnowledgeBase(mongoClient);
 
 /**
+ * @see https://docs.aws.amazon.com/prescriptive-guidance/latest/migration-mongodb-atlas/architecture.html
  * @param event S3 Event message, as seen on https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-content-structure.html
  * @param context
  */
-export const handler: S3Handler = async (event, context) => {
-  // event.Records.forEach(record => {
-  //   console.log(`Event: ${JSON.stringify(event, null, 2)}`);
-  //   console.log(`Context: ${JSON.stringify(context, null, 2)}`);
-  // });
-}
+export const handler: S3Handler = async (event) => {
+  console.info(event.Records[0] ?? 'Empty event');
+  await mdbKnowledgeBase.handleEvent(event);
+};
