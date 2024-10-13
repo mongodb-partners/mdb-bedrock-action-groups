@@ -1,5 +1,7 @@
-import { S3Event } from "aws-lambda";
+import { S3EventRecord } from "aws-lambda";
 import { MongoClient } from "mongodb";
+import { ChunkDoc, LoaderFacade } from "./LoaderFacade";
+import { VectorGeneratorFacade } from "./VectorGeneratorFacade";
 
 const DB_NAME = process.env.DB_NAME ?? "knowledgebase";
 const COL_INVENTORY = process.env.COL_INVENTORY ?? "kbInventory";
@@ -8,16 +10,10 @@ const COL_CHUNKS = process.env.COL_CHUNKS ?? "kbChunks";
 type InventoryEntryDoc = {
   _id: string;
   eTag: string;
-  ingestedAt: Date;
+  updatedAt: Date;
+  status: 'success' | 'fail' | 'removed';
+  error?: string;
 };
-
-type ChunkDoc = {
-  text: string;
-  metadata: {
-    source: string;
-    eTag: string;
-  }
-}
 
 export class MongoDBKnowledgeBase {
   mongodb: MongoClient;
@@ -27,33 +23,60 @@ export class MongoDBKnowledgeBase {
   }
 
   /**
-   * Handle ObjectCreated:Put S3Events.
+   * Handle ObjectCreated:Put and ObjectRemoved:Delete S3 events.
    * Ingest the given s3 object into the knowledge base's chunk collection.
    * This method will parse, chunk, generate the vector embeddings and insert
    * the data in MongoDB.
-   * @param s3event S3 Event following the structure found at https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-content-structure.html
+   * If a ObjectRemoved event is received, remove chunks from
+   * MongoDB.
+   * @param s3eventRecord S3 Event Record following the structure found at https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-content-structure.html
    */
-  async handleEvent(s3event: S3Event) {
-    for (const record of s3event.Records) {
-      if (record.eventName.startsWith("ObjectCreated:")) {
-        const bucketName = record.s3.bucket.name;
-        const objectKey = record.s3.object.key;
-        const objectEtag = record.s3.object.eTag;
+  async handleEvent(s3eventRecord: S3EventRecord) {
+    const bucketName = s3eventRecord.s3.bucket.name;
+    const objectKey = cleanS3Key(s3eventRecord.s3.object.key);
+    const objectEtag = s3eventRecord.s3.object.eTag;
 
-        const shouldIngest = !await this.isIngested(
+    // Handle remove
+    if (s3eventRecord.eventName.startsWith("ObjectRemoved:")) {
+      console.info(`Removing object ${objectKey} - bucket ${bucketName} from knowledge base collection.`,);
+      await this.removeObject(bucketName, objectKey);
+      await this.markAsRemoved(bucketName, objectKey);
+      return
+    }
+
+    // Handle insert/update
+    if (s3eventRecord.eventName.startsWith("ObjectCreated:")) {
+      const isPdf = objectKey.endsWith(".pdf");
+      const isIngested = await this.isIngested(
+        bucketName,
+        objectKey,
+        objectEtag,
+      );
+
+      if (!isPdf) {
+        console.info(`Skipping non-PDF object ${objectKey} from bucket ${bucketName}.`);
+        return;
+      }
+
+      if (isIngested) {
+        console.info(`Skipping object ${objectKey} from bucket ${bucketName}, ETag haven't changed.`);
+        return;
+      }
+
+      console.info(`Ingesting object ${objectKey} from bucket ${bucketName}.`);
+      try {
+        await this.ingestObject(bucketName, objectKey, objectEtag);
+        await this.markAsIngested(bucketName, objectKey, objectEtag);
+        console.info(`Object ${objectKey} from bucket ${bucketName} ingested successfully.`);
+      } catch (error) {
+        console.error(`Unable to ingest Object ${objectKey} from bucket ${bucketName}.`);
+        console.error(error);
+        await this.markAsError(
           bucketName,
           objectKey,
           objectEtag,
+          error as Error,
         );
-
-        if (shouldIngest) {
-          console.info(`Ingesting object ${objectKey} from bucket ${bucketName}.`);
-          await this.ingestObject(bucketName, objectKey, objectEtag);
-          await this.markAsIngested(bucketName, objectKey, objectEtag);
-          console.info(`Object ${objectKey} from bucket ${bucketName} ingested successfully.`);
-        } else {
-          console.info(`Object ${objectKey} from bucket ${bucketName} has already been ingested, skipping ingestion.`);
-        }
       }
     }
   }
@@ -72,38 +95,51 @@ export class MongoDBKnowledgeBase {
     objectEtag: string,
   ): Promise<void> {
     const s3Address = `s3://${bucketName}/${objectKey}`;
+    const loader = new LoaderFacade(bucketName, objectKey, objectEtag);
+    const vecGenerator = new VectorGeneratorFacade();
+
+    // Load file and split
+    const chunks = await loader.loadAndSplit();
+
+    // Generate vector embeddings
+    const chunksWithVector = await vecGenerator.generateForDocuments(chunks);
+
+    // Insert new chunks for object
+    const insertion = this.mongodb.db(DB_NAME)
+      .collection<ChunkDoc>(COL_CHUNKS)
+      .insertMany(chunksWithVector);
 
     // Remove stale chunks for this object
     const staleRemoval = this.mongodb.db(DB_NAME)
       .collection<ChunkDoc>(COL_CHUNKS)
       .deleteMany({
-        metadata: {
-          source: s3Address,
-          eTag: { $ne: objectEtag } // where eTag is not equal the new one
-        }
+        "metadata.source": s3Address,
+        "metadata.eTag": { $ne: objectEtag }, // where eTag is not equal the new one
       });
 
-    // Insert new chunks for object
-    const insertion = this.mongodb.db(DB_NAME)
-      .collection<ChunkDoc>(COL_CHUNKS)
-      .insertMany([
-        {
-          text: 'Loren ipsum dolor',
-          metadata: {
-            source: s3Address,
-            eTag: objectEtag
-          }
-        },
-        {
-          text: 'sit amet, consectetur adipiscing',
-          metadata: {
-            source: s3Address,
-            eTag: objectEtag
-          }
-        }
-      ]);
+    await Promise.all([staleRemoval, insertion]);
+  }
 
-      await Promise.all([staleRemoval, insertion]);
+  /**
+   * Removes the given s3 object from the knowledge base's chunk collection.
+   * @param bucketName
+   * @param objectKey
+   * @param objectEtag
+   */
+  async removeObject(
+    bucketName: string,
+    objectKey: string
+  ): Promise<void> {
+    const s3Address = `s3://${bucketName}/${objectKey}`;
+
+    // Remove stale chunks for this object
+    const staleRemoval = this.mongodb.db(DB_NAME)
+      .collection<ChunkDoc>(COL_CHUNKS)
+      .deleteMany({
+        "metadata.source": s3Address
+      });
+
+    staleRemoval
   }
 
   /**
@@ -125,7 +161,7 @@ export class MongoDBKnowledgeBase {
     const exists = await this.mongodb.db(DB_NAME)
       .collection<InventoryEntryDoc>(COL_INVENTORY)
       .findOne(
-        { _id: s3Address, eTag: objectEtag },
+        { _id: s3Address, eTag: objectEtag, status: "success" },
         { projection: { _id: 1 } },
       );
 
@@ -151,8 +187,73 @@ export class MongoDBKnowledgeBase {
       .collection<InventoryEntryDoc>(COL_INVENTORY)
       .findOneAndReplace(
         { _id: s3Address },
-        { eTag: objectEtag, ingestedAt: new Date() },
+        { eTag: objectEtag, updatedAt: new Date(), status: "success" },
+        { upsert: true },
+      );
+  }
+
+  /**
+   * Mark the given s3 object as removed from the knowledge base by
+   * updating the document in the inventory collection.
+   * @param bucketName
+   * @param objectKey
+   * @param objectEtag
+   */
+  protected async markAsRemoved(
+    bucketName: string,
+    objectKey: string
+  ): Promise<void> {
+    const s3Address = `s3://${bucketName}/${objectKey}`;
+
+    // Insert or updates object path and eTag to inventory
+    await this.mongodb.db(DB_NAME)
+      .collection<InventoryEntryDoc>(COL_INVENTORY)
+      .findOneAndReplace(
+        { _id: s3Address },
+        { eTag: '0', updatedAt: new Date(), status: "removed" },
+        { upsert: true },
+      );
+  }
+
+  /**
+   * Mark the given s3 object as failed in the knowledge base by
+   * inserting or updating the inventory collection.
+   * @param bucketName
+   * @param objectKey
+   * @param objectEtag
+   */
+  protected async markAsError(
+    bucketName: string,
+    objectKey: string,
+    objectEtag: string,
+    error: Error,
+  ): Promise<void> {
+    const s3Address = `s3://${bucketName}/${objectKey}`;
+    const errorString = typeof error === "object"
+      ? JSON.stringify({ error: error.toString(), stack: error.stack })
+      : String(error);
+
+    // Insert or updates object path and eTag to inventory
+    await this.mongodb.db(DB_NAME)
+      .collection<InventoryEntryDoc>(COL_INVENTORY)
+      .findOneAndReplace(
+        { _id: s3Address },
+        {
+          eTag: objectEtag,
+          updatedAt: new Date(),
+          status: "fail",
+          error: errorString,
+        },
         { upsert: true },
       );
   }
 }
+
+/**
+ * Object key may have spaces or unicode non-ASCII characters
+ * @see https://docs.aws.amazon.com/lambda/latest/dg/with-s3-tutorial.html#with-s3-tutorial-create-function-code
+ * @param s3Key
+ * @returns
+ */
+const cleanS3Key = (s3Key: string) =>
+  decodeURIComponent(s3Key.replace(/\+/g, " "));

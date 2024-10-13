@@ -1,9 +1,11 @@
 import { Duration, RemovalPolicy, Stack, StackProps } from "aws-cdk-lib";
 import { Construct } from "constructs";
-import { FunctionUrlAuthType, LoggingFormat, Runtime } from "aws-cdk-lib/aws-lambda";
+import { LoggingFormat, Runtime } from "aws-cdk-lib/aws-lambda";
 import { S3EventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
-import { Bucket, EventType as S3EventTYpe } from "aws-cdk-lib/aws-s3";
+import { Bucket, EventType as S3EventType } from "aws-cdk-lib/aws-s3";
+import { PolicyStatement } from "aws-cdk-lib/aws-iam";
+
 
 export class MdbBedrockActionsStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
@@ -25,25 +27,53 @@ export class MdbBedrockActionsStack extends Stack {
     const ingestLambda = new NodejsFunction(this, "IngestLambda", {
       runtime: Runtime.NODEJS_18_X,
       timeout: Duration.minutes(15),
+      memorySize: 512,
       functionName: `${this.stackName}-IngestLambda`,
+      depsLockFilePath: "./functions/ingest/package-lock.json",
       entry: "./functions/ingest/ingestHandler.ts",
       handler: "handler",
       environment: {
-        MONGODB_CONN_STRING: '<connString>',
+        /**
+         * Set MONGODB_CONN_STRING to with connection string or PrivateLink endpoint
+         * @example mongodb+srv://<username>:<password>@cluster-b.6vlan.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+         */
+        MONGODB_CONN_STRING: '',
       },
       loggingFormat: LoggingFormat.JSON,
     });
 
     /**
      * Trigger the lambda function whenever a new object is added
-     * to the bucket
+     * or removed from the bucket
      */
-    const s3PutEventSource = new S3EventSource(kbBucket, {
+    const s3EventSource = new S3EventSource(kbBucket, {
       events: [
-        S3EventTYpe.OBJECT_CREATED,
+        S3EventType.OBJECT_CREATED,
+        S3EventType.OBJECT_REMOVED,
       ],
     });
+    ingestLambda.addEventSource(s3EventSource);
 
-    ingestLambda.addEventSource(s3PutEventSource);
+    /**
+     * Grant the lambda function permissions to access the bucket
+     */
+    kbBucket.grantReadWrite(ingestLambda);
+
+    /**
+     * Grant the lambda function permissions to invoke Bedrock
+     */
+    ingestLambda.role?.addToPrincipalPolicy(
+      new PolicyStatement({
+        actions: [
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelEndpoint",
+          "bedrock:InvokeModelEndpointAsync",
+          "bedrock:InvokeModelWithResponseStream"
+        ],
+        resources: [
+          `arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0`
+        ],
+      }),
+    );
   }
 }
