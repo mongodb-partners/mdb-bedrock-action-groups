@@ -2,6 +2,7 @@ import { S3EventRecord } from "aws-lambda";
 import { MongoClient } from "mongodb";
 import { ChunkDoc, LoaderFacade } from "./LoaderFacade";
 import { VectorGeneratorFacade } from "./VectorGeneratorFacade";
+import { MetadataLoader } from "./MetadataLoader";
 
 const DB_NAME = process.env.DB_NAME ?? "knowledgebase";
 const COL_INVENTORY = process.env.COL_INVENTORY ?? "kbInventory";
@@ -29,18 +30,29 @@ export class MongoDBKnowledgeBase {
    * the data in MongoDB.
    * If a ObjectRemoved event is received, remove chunks from
    * MongoDB.
+   * If an objectKey ends with `metadata.json`, process as metadata.
+   *
+   * @see https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-content-structure.html
+   * @see https://aws.amazon.com/blogs/machine-learning/amazon-bedrock-knowledge-bases-now-supports-metadata-filtering-to-improve-retrieval-accuracy/
+   *
    * @param s3eventRecord S3 Event Record following the structure found at https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-content-structure.html
    */
   async handleEvent(s3eventRecord: S3EventRecord) {
     const bucketName = s3eventRecord.s3.bucket.name;
     const objectKey = cleanS3Key(s3eventRecord.s3.object.key);
     const objectEtag = s3eventRecord.s3.object.eTag;
+    const isMetadataFile = objectKey.endsWith(".metadata.json")
 
     // Handle remove
     if (s3eventRecord.eventName.startsWith("ObjectRemoved:")) {
-      console.info(`Removing object ${objectKey} - bucket ${bucketName} from knowledge base collection.`,);
       await this.removeObject(bucketName, objectKey);
       await this.markAsRemoved(bucketName, objectKey);
+      return
+    }
+
+    // Handle metadata
+    if (s3eventRecord.eventName.startsWith("ObjectCreated:") && isMetadataFile) {
+      await this.ingestMetadata(bucketName, objectKey);
       return
     }
 
@@ -63,11 +75,11 @@ export class MongoDBKnowledgeBase {
         return;
       }
 
-      console.info(`Ingesting object ${objectKey} from bucket ${bucketName}.`);
       try {
         await this.ingestObject(bucketName, objectKey, objectEtag);
         await this.markAsIngested(bucketName, objectKey, objectEtag);
         console.info(`Object ${objectKey} from bucket ${bucketName} ingested successfully.`);
+        await this.ingestMetadata(bucketName, objectKey);
       } catch (error) {
         console.error(`Unable to ingest Object ${objectKey} from bucket ${bucketName}.`);
         console.error(error);
@@ -94,6 +106,7 @@ export class MongoDBKnowledgeBase {
     objectKey: string,
     objectEtag: string,
   ): Promise<void> {
+    console.info(`Ingesting object ${objectKey} from bucket ${bucketName}.`);
     const s3Address = `s3://${bucketName}/${objectKey}`;
     const loader = new LoaderFacade(bucketName, objectKey, objectEtag);
     const vecGenerator = new VectorGeneratorFacade();
@@ -130,6 +143,7 @@ export class MongoDBKnowledgeBase {
     bucketName: string,
     objectKey: string
   ): Promise<void> {
+    console.info(`Removing object ${objectKey} - bucket ${bucketName} from knowledge base collection.`,);
     const s3Address = `s3://${bucketName}/${objectKey}`;
 
     // Remove stale chunks for this object
@@ -140,6 +154,37 @@ export class MongoDBKnowledgeBase {
       });
 
     staleRemoval
+  }
+
+  /**
+   * Ingest the associated metadata field for the given file.
+   * @see https://aws.amazon.com/blogs/machine-learning/amazon-bedrock-knowledge-bases-now-supports-metadata-filtering-to-improve-retrieval-accuracy/
+   * @param bucketName
+   * @param objectKey Can either be `file.pdf.metadata.json` or `file.pdf`. The method will resolve and load the `.metadata.json` for the given object.
+   */
+  async ingestMetadata(
+    bucketName: string,
+    objectKey: string,
+  ) {
+    const targetObjectKey = objectKey.replace(/\.metadata\.json$/, "");
+    const metadataObjectKey = `${targetObjectKey}.metadata.json`;
+    const s3Address = `s3://${bucketName}/${targetObjectKey}`;
+
+    console.info(`Ingesting metadata for ${targetObjectKey} from bucket ${bucketName}.`);
+    const metadataLoader = new MetadataLoader(bucketName, metadataObjectKey);
+    const metadata = await metadataLoader.load();
+
+    if (!metadata) {
+      return // no metadata found
+    }
+
+    // Updates metadata field of existing chunks
+    await this.mongodb.db(DB_NAME)
+      .collection<ChunkDoc>(COL_CHUNKS)
+      .updateMany(
+        { "metadata.source": s3Address },
+        [{$addFields: { metadata: metadata }}],
+      );
   }
 
   /**
@@ -211,7 +256,7 @@ export class MongoDBKnowledgeBase {
       .findOneAndReplace(
         { _id: s3Address },
         { eTag: '0', updatedAt: new Date(), status: "removed" },
-        { upsert: true },
+        { upsert: false },
       );
   }
 
