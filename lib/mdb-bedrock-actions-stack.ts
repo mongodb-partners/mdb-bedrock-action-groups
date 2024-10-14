@@ -4,7 +4,7 @@ import { LoggingFormat, Runtime } from "aws-cdk-lib/aws-lambda";
 import { S3EventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { Bucket, EventType as S3EventType } from "aws-cdk-lib/aws-s3";
-import { PolicyStatement } from "aws-cdk-lib/aws-iam";
+import { PolicyStatement, ServicePrincipal } from "aws-cdk-lib/aws-iam";
 
 
 export class MdbBedrockActionsStack extends Stack {
@@ -43,6 +43,27 @@ export class MdbBedrockActionsStack extends Stack {
     });
 
     /**
+     * Lambda function to retrieve documents
+     */
+    const retrievalLambda = new NodejsFunction(this, "RetrievalLambda", {
+      runtime: Runtime.NODEJS_18_X,
+      timeout: Duration.minutes(15),
+      memorySize: 512,
+      functionName: `${this.stackName}-RetrievalLambda`,
+      depsLockFilePath: "./functions/retrieval/package-lock.json",
+      entry: "./functions/retrieval/retrievalHandler.ts",
+      handler: "handler",
+      environment: {
+        /**
+         * Set MONGODB_CONN_STRING to with connection string or PrivateLink endpoint
+         * @example mongodb+srv://<username>:<password>@cluster-b.6vlan.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+         */
+        MONGODB_CONN_STRING: '',
+      },
+      loggingFormat: LoggingFormat.JSON,
+    });
+
+    /**
      * Trigger the lambda function whenever a new object is added
      * or removed from the bucket
      */
@@ -60,20 +81,27 @@ export class MdbBedrockActionsStack extends Stack {
     kbBucket.grantReadWrite(ingestLambda);
 
     /**
-     * Grant the lambda function permissions to invoke Bedrock
+     * Grant the lambda functions permissions to invoke Bedrock
      */
-    ingestLambda.role?.addToPrincipalPolicy(
-      new PolicyStatement({
-        actions: [
-          "bedrock:InvokeModel",
-          "bedrock:InvokeModelEndpoint",
-          "bedrock:InvokeModelEndpointAsync",
-          "bedrock:InvokeModelWithResponseStream"
-        ],
-        resources: [
-          `arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0`
-        ],
-      }),
-    );
+    const allowBedrockInvocation = new PolicyStatement({
+      actions: [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelEndpoint",
+        "bedrock:InvokeModelEndpointAsync",
+        "bedrock:InvokeModelWithResponseStream"
+      ],
+      resources: [
+        `arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0`
+      ],
+    });
+
+    ingestLambda.role?.addToPrincipalPolicy(allowBedrockInvocation);
+    retrievalLambda.role?.addToPrincipalPolicy(allowBedrockInvocation);
+
+    /**
+     * Allow funciton to be invoked by an Bedrock agent
+     */
+    retrievalLambda.grantInvoke(new ServicePrincipal("bedrock.amazonaws.com"));
   }
+
 }

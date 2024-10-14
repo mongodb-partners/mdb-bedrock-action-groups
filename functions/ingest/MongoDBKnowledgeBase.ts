@@ -1,7 +1,7 @@
 import { S3EventRecord } from "aws-lambda";
 import { MongoClient } from "mongodb";
 import { ChunkDoc, LoaderFacade } from "./LoaderFacade";
-import { VectorGeneratorFacade } from "./VectorGeneratorFacade";
+import { VectorGeneratorFacade } from "../common/VectorGeneratorFacade";
 import { MetadataLoader } from "./MetadataLoader";
 
 const DB_NAME = process.env.DB_NAME ?? "knowledgebase";
