@@ -67,41 +67,41 @@ export class MongoDBHybridRetriever {
        * Vector Search and Reciprocal-rank
        */
       {
-          "$vectorSearch": {
-              "index": this.vectorSearchIndex,
-              "path": "embedding",
-              "queryVector": vector,
-              "numCandidates": k*10,
-              "limit": k
-          }
+        "$vectorSearch": {
+          "index": this.vectorSearchIndex,
+          "path": "embedding",
+          "queryVector": vector,
+          "numCandidates": k*10,
+          "limit": k
+        }
       },
       {
-          "$group": {
-            "_id": null,
-            "docs": {"$push": "$$ROOT"}
-          }
+        "$group": {
+          "_id": null,
+          "docs": {"$push": "$$ROOT"}
+        }
       },
       {
-          "$unwind": {
-            "path": "$docs",
-            "includeArrayIndex": "rank"
-          }
+        "$unwind": {
+        "path": "$docs",
+        "includeArrayIndex": "rank"
+        }
       },
       {
-          "$addFields": {
-            "_id": "$docs._id",
-            "vs_score": {
-              "$multiply": [
-                vectorWeight, {
-                  "$divide": [
-                    1.0, {
-                      "$add": ["$rank", 60]
-                    }
-                  ]
-                }
-              ]
-            }
+        "$addFields": {
+          "_id": "$docs._id",
+          "vs_score": {
+            "$multiply": [
+              vectorWeight, {
+                "$divide": [
+                  1.0, {
+                    "$add": ["$rank", 60]
+                  }
+                ]
+              }
+            ]
           }
+        }
       },
       /**
        * $unionWith starts another aggregation that will be fused
@@ -112,50 +112,50 @@ export class MongoDBHybridRetriever {
        *   $search ------→ [...] -↗
        */
       {
-          "$unionWith": {
-            "coll": COL_CHUNKS,
-            "pipeline": [
-              /**
-               * FullText Search and Reciprocal-rank
-               */
-              {
-                "$search": {
-                  "index": this.textSearchIndex,
-                  "text": {
-                    "query": textQuery,
-                    "path": "text"
-                  }
-                }
-              }, {
-                "$limit": k
-              }, {
-                "$group": {
-                  "_id": null,
-                  "docs": {"$push": "$$ROOT"}
-                }
-              }, {
-                "$unwind": {
-                  "path": "$docs",
-                  "includeArrayIndex": "rank"
-                }
-              }, {
-                "$addFields": {
-                  "_id": "$docs._id",
-                  "fts_score": {
-                    "$multiply": [
-                      fullTextWeight, {
-                        "$divide": [
-                          1.0, {
-                            "$add": ["$rank", 60]
-                          }
-                        ]
-                      }
-                    ]
-                  }
+        "$unionWith": {
+          "coll": COL_CHUNKS,
+          "pipeline": [
+            /**
+             * FullText Search and Reciprocal-rank
+             */
+            {
+              "$search": {
+                "index": this.textSearchIndex,
+                "text": {
+                  "query": textQuery,
+                  "path": "text"
                 }
               }
-            ]
-          }
+            }, {
+              "$limit": k
+            }, {
+              "$group": {
+                "_id": null,
+                "docs": {"$push": "$$ROOT"}
+              }
+            }, {
+              "$unwind": {
+                "path": "$docs",
+                "includeArrayIndex": "rank"
+              }
+            }, {
+              "$addFields": {
+                "_id": "$docs._id",
+                "fts_score": {
+                  "$multiply": [
+                    fullTextWeight, {
+                      "$divide": [
+                        1.0, {
+                          "$add": ["$rank", 60]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
       },
       /**
        * Reciprocal-rank-fusion
@@ -163,25 +163,25 @@ export class MongoDBHybridRetriever {
        * `fts_score` and `score` fields
        */
       {
-          "$group": {
-            "_id": "$_id",
-            docs: {
-              $first: "$docs",
-            },
-            "vs_score": {"$max": "$vs_score"},
-            "fts_score": {"$max": "$fts_score"}
-          }
+        "$group": {
+          "_id": "$_id",
+          docs: {
+            $first: "$docs",
+          },
+          "vs_score": {"$max": "$vs_score"},
+          "fts_score": {"$max": "$fts_score"}
+        }
       },
       {
-          "$addFields": {
-            "docs.vs_score": {"$ifNull": ["$vs_score", 0]},
-            "docs.fts_score": {"$ifNull": ["$fts_score", 0]}
-          }
+        "$addFields": {
+          "docs.vs_score": {"$ifNull": ["$vs_score", 0]},
+          "docs.fts_score": {"$ifNull": ["$fts_score", 0]}
+        }
       },
       {
-          "$addFields": {
-            "docs.score": {"$add": ["$docs.vs_score", "$docs.fts_score"]}
-          }
+        "$addFields": {
+          "docs.score": {"$add": ["$docs.vs_score", "$docs.fts_score"]}
+        }
       },
       /**
        * Bring results to root of results
@@ -189,14 +189,19 @@ export class MongoDBHybridRetriever {
       {
         $replaceRoot: {newRoot: "$docs"}
       },
+      {
+        "$unset": {
+          "docs.embedding": -1
+        }
+      },
       /**
        * Sort by score and limit results
        */
       {
-          "$sort": {"score": -1}
+        "$sort": {"score": -1}
       },
       {
-          "$limit": k
+        "$limit": k
       }
     ];
 

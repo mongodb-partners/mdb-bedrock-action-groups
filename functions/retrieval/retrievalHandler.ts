@@ -28,6 +28,22 @@ export const handler: Handler = async (event: BedrockAgentEvent, context: Contex
   const filters = rawFilters ? JSON.parse(rawFilters) : undefined;
   const result = await mdbHybridRetriever.query(event.inputText, filters);
 
-  // const response: BedrockAgentResponse = {};
-  // return response;
+  const response: BedrockAgentResponse = {
+    messageVersion: "1.0",
+    response: {
+      actionGroup: event.actionGroup,
+      function: event.function,
+      functionResponse: {
+        responseBody: {
+          "TEXT": {
+            body: result.map(d => JSON.stringify(d)).join(','),
+          }
+        }
+      }
+    },
+    sessionAttributes: event.sessionAttributes,
+    promptSessionAttributes: event.promptSessionAttributes
+  };
+
+  return response;
 };
