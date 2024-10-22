@@ -35,9 +35,20 @@ export class MetadataLoader {
       return null
     }
 
-    const fileContents = await fs.readFile(filePath, 'utf8');
-    const metadata = JSON.parse(fileContents);
-    return metadata
+    let metadata: {[key: string]: unknown} = {};
+    try {
+      const fileContents = await fs.readFile(filePath, 'utf8');
+      metadata = JSON.parse(fileContents);
+    } catch (err) {
+      console.info(`Unable to parse ${this.objectKey}.`, err);
+    }
+
+    if (!metadata.metadataAttributes) {
+      console.info(`Metadata file ${this.objectKey} doesn't contain 'metadataAttributes' key.`);
+      return null
+    }
+
+    return metadata.metadataAttributes
   }
 
   /**

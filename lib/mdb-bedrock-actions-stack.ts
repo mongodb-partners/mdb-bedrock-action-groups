@@ -59,6 +59,8 @@ export class MdbBedrockActionsStack extends Stack {
          * @example mongodb+srv://<username>:<password>@cluster-b.6vlan.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
          */
         MONGODB_CONN_STRING: '',
+        MONGODB_VEC_INDEX: 'vector_index',
+        MONGODB_FTS_INDEX: 'text_index',
       },
       loggingFormat: LoggingFormat.JSON,
     });

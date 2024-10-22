@@ -190,9 +190,7 @@ export class MongoDBHybridRetriever {
         $replaceRoot: {newRoot: "$docs"}
       },
       {
-        "$unset": {
-          "docs.embedding": -1
-        }
+        "$unset": "embedding"
       },
       /**
        * Sort by score and limit results

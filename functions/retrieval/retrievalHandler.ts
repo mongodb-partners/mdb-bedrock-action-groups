@@ -36,7 +36,7 @@ export const handler: Handler = async (event: BedrockAgentEvent, context: Contex
       functionResponse: {
         responseBody: {
           "TEXT": {
-            body: result.map(d => JSON.stringify(d)).join(','),
+            body: `<search_results>${result.map(d => `<search_result>${JSON.stringify(d)}<source>${d.metadata?.source}</source></search_result>`).join('')}</search_results>`,
           }
         }
       }
@@ -44,6 +44,8 @@ export const handler: Handler = async (event: BedrockAgentEvent, context: Contex
     sessionAttributes: event.sessionAttributes,
     promptSessionAttributes: event.promptSessionAttributes
   };
+
+  console.info(response)
 
   return response;
 };
