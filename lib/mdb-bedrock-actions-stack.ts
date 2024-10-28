@@ -14,8 +14,8 @@ export class MdbBedrockActionsStack extends Stack {
     /**
      * Bucket to place the files that will compose our knowledge base.
      */
-    const kbBucket = new Bucket(this, "KnowledgeBaseBucket", {
-      bucketName: `${this.stackName.toLowerCase()}-kb-bucket`,
+    const kbBucket = new Bucket(this, "KnowledgeBaseDataSource", {
+      bucketName: `${this.stackName.toLowerCase()}-kb-datasource`,
       publicReadAccess: false,
       removalPolicy: RemovalPolicy.DESTROY,
       autoDeleteObjects: true, // ensure bucket deleted with `cdk destroy`

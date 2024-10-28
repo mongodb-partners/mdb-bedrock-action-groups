@@ -2,6 +2,8 @@
 
 This project demonstrates how to deploy a set of resources on AWS to implement a **MongoDB Hybrid-Search powered Retrieval-Augmented Generation (RAG) architecture**. The stack (`MdbBedrockActionsStack`) includes:
 
+![Diagram](./docs/diagram.png)
+
 - An S3 Bucket to ingest PDF documents into a Knowledge Base.
 - MongoDB Atlas as the Knowledge Base Vector Store.
 - A Lambda function to synchronize (ingest, update, remove) PDFs added to the S3 Bucket.
