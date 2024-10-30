@@ -39,7 +39,25 @@ This project demonstrates how to deploy a set of resources on AWS to implement a
 └── README.md                        # Project documentation
 ```
 
-## Deployment
+## Resources
+
+### S3 Bucket
+
+An S3 Bucket is created to ingest PDF documents. The bucket is configured with event notifications to trigger the synchronization Lambda function whenever a PDF is added, updated, or removed.
+
+### MongoDB Atlas
+
+MongoDB Atlas is used as the Knowledge Base Vector Store. Ensure you have your MongoDB Atlas API keys and connection string ready. The stack will create necessary collections and indexes for vector and full-text search.
+
+### Synchronization Lambda
+
+This Lambda function is triggered by S3 events. It handles the ingestion, update, and removal of PDFs in the MongoDB Atlas Knowledge Base.
+
+### Hybrid Search Lambda
+
+This Lambda function serves as an entry point for performing hybrid searches (Vector + Full-Text) in MongoDB Atlas. It can be invoked via API Gateway or other AWS services.
+
+# Deployment
 
 1. **Clone the repository:**
 
@@ -66,25 +84,59 @@ This project demonstrates how to deploy a set of resources on AWS to implement a
     cdk deploy
     ```
 
-## Resources
+## Integrating with MongoDB Atlas
 
-### S3 Bucket
+To integrate the Lambda functions with your existing MongoDB Atlas cluster, follow these steps:
 
-An S3 Bucket is created to ingest PDF documents. The bucket is configured with event notifications to trigger the synchronization Lambda function whenever a PDF is added, updated, or removed.
+1. **Obtain MongoDB Connection String:**
+    - Log in to your MongoDB Atlas account.
+    - Navigate to your cluster and click on "Connect".
+    - Choose "Connect your application" and copy the connection string.
 
-### MongoDB Atlas
+2. **Set Environment Variables:**
+    - Set the `MONGODB_CONN_STRING` or `MONGODB_CONN_SECRET` environment variable on `lib/mdb-bedrock-actions-stack.ts`:
+       - **Opiton 1**: Update the `MONGODB_CONN_STRING` environment variable for the `ingestLambda` and `retrievalLambda` configurations with your MongoDB connection string.
+       - **Option 2 (Recommended):** Update `MONGODB_CONN_SECRET` environment variable for the `ingestLambda` and `retrievalLambda` configurations with a secret that contains your MongoDB connection string.
 
-MongoDB Atlas is used as the Knowledge Base Vector Store. Ensure you have your MongoDB Atlas API keys and connection string ready. The stack will create necessary collections and indexes for vector and full-text search.
+3. **Create Indexes:**
+    - Ensure that your MongoDB collections have the necessary indexes for vector and full-text search. You can create these indexes using the MongoDB Atlas UI or via the MongoDB shell.
+    - Vector Search Index [(learn more)](https://www.mongodb.com/docs/atlas/atlas-vector-search/vector-search-type/):
+    ```jsonc
+    {
+      "fields": [
+        {
+          "numDimensions": 1024,
+          "path": "embedding",
+          "similarity": "cosine",
+          "type": "vector"
+        },
+        {
+          "path": "metadata",
+          "type": "filter"
+        },
+        {
+          "path": "metadata.source",
+          "type": "filter"
+        }
+        // can be extended with additional fields
+      ]
+    }
+    ```
+    - Full-Text Search Index [(learn more)](https://www.mongodb.com/docs/atlas/atlas-search/manage-indexes/):
+    ```jsonc
+    {
+      "mappings": {
+        "dynamic": false,
+        "fields": {
+          "text": {
+            "type": "string"
+          }
+        }
+      }
+    }
+    ```
 
-### Synchronization Lambda
-
-This Lambda function is triggered by S3 events. It handles the ingestion, update, and removal of PDFs in the MongoDB Atlas Knowledge Base.
-
-### Hybrid Search Lambda
-
-This Lambda function serves as an entry point for performing hybrid searches (Vector + Full-Text) in MongoDB Atlas. It can be invoked via API Gateway or other AWS services.
-
-## Using the Hybrid Search Lambda with Bedrock Agent
+## Integrating with with Bedrock Agent
 
 The Hybrid Search Lambda can be integrated as an Action Group of a Bedrock Agent to enable a full RAG architecture. Bedrock can be used for:
 
@@ -113,3 +165,10 @@ By following these steps, you can leverage Bedrock for the Foundation Models, Pr
 This project provides an example of how to leverage a RAG architecture using AWS CDK, S3, MongoDB Atlas, and AWS Lambda. By integrating with Bedrock, you can enhance the architecture with advanced NLP capabilities and ensure robust and reliable responses.
 
 For more information, refer to the [AWS CDK documentation](https://docs.aws.amazon.com/cdk/latest/guide/home.html) and [MongoDB Atlas documentation on Hybrid Search](https://www.mongodb.com/docs/atlas/atlas-vector-search/tutorials/reciprocal-rank-fusion/).
+
+<sup>
+This software distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the LICENSE.md for the specific language governing permissions and
+limitations under the License.
+</sup>
