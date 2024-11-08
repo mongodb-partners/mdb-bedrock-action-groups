@@ -5,7 +5,21 @@ import { S3EventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { Bucket, EventType as S3EventType } from "aws-cdk-lib/aws-s3";
 import { PolicyStatement, ServicePrincipal } from "aws-cdk-lib/aws-iam";
+import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 
+/**
+ * Set MONGODB_CONN_STRING to with connection string or PrivateLink endpoint
+ * @example "mongodb+srv://<username>:<password>@cluster-b.6vlan.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+ */
+const MONGODB_CONN_STRING = '';
+
+/**
+ * Set MONGODB_CONN_SECRET with the name of the secret containing a connection string
+ * @example
+ *   "secretName"
+ *   // with value mongodb+srv://<username>:<password>@cluster-b.6vlan.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+ */
+const MONGODB_CONN_SECRET = 'mdb_bedrock_demo_credentials';
 
 export class MdbBedrockActionsStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
@@ -33,11 +47,8 @@ export class MdbBedrockActionsStack extends Stack {
       entry: "./functions/ingest/ingestHandler.ts",
       handler: "handler",
       environment: {
-        /**
-         * Set MONGODB_CONN_STRING to with connection string or PrivateLink endpoint
-         * @example mongodb+srv://<username>:<password>@cluster-b.6vlan.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
-         */
-        MONGODB_CONN_STRING: '',
+        MONGODB_CONN_STRING,
+        MONGODB_CONN_SECRET,
       },
       loggingFormat: LoggingFormat.JSON,
     });
@@ -54,11 +65,8 @@ export class MdbBedrockActionsStack extends Stack {
       entry: "./functions/retrieval/retrievalHandler.ts",
       handler: "handler",
       environment: {
-        /**
-         * Set MONGODB_CONN_STRING to with connection string or PrivateLink endpoint
-         * @example mongodb+srv://<username>:<password>@cluster-b.6vlan.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
-         */
-        MONGODB_CONN_STRING: '',
+        MONGODB_CONN_STRING,
+        MONGODB_CONN_SECRET,
         MONGODB_VEC_INDEX: 'vector_index',
         MONGODB_FTS_INDEX: 'text_index',
       },
@@ -81,6 +89,16 @@ export class MdbBedrockActionsStack extends Stack {
      * Grant the lambda function permissions to access the bucket
      */
     kbBucket.grantReadWrite(ingestLambda);
+
+    /**
+     * If MONGODB_CONN_SECRET is set, grant the lambda function permissions
+     * to access the connection string
+     */
+    if (MONGODB_CONN_SECRET) {
+      const mongoDBConnStringSecret = Secret.fromSecretNameV2(this, 'SecretMongoDBConnString', MONGODB_CONN_SECRET);
+      mongoDBConnStringSecret.grantRead(ingestLambda);
+      mongoDBConnStringSecret.grantRead(retrievalLambda);
+    }
 
     /**
      * Grant the lambda functions permissions to invoke Bedrock
