@@ -2,6 +2,7 @@ import { Handler, Context } from "aws-lambda";
 import { MongoClient, ServerApiVersion } from "mongodb";
 import { MongoDBHybridRetriever } from "./MongoDBHybridRetriever";
 import { SecretRetreiver } from "../common/SecretRetriever";
+import type { BedrockAgentEvent, BedrockAgentResponse } from "./BedrockAgentEvent";
 
 type BedrockAgentHandler = (event: BedrockAgentEvent, context: Context) => Promise<BedrockAgentResponse>
 

@@ -14,15 +14,41 @@ resource "aws_s3_bucket" "kb_bucket" {
   force_destroy = true
 }
 
-# Lambda function to ingest newly added documents
+
+# Package lambda functions
+resource "null_resource" "functions_zip" {
+  triggers = {
+    always = "${uuid()}"
+  }
+
+  # install deps and build before compressing lambda dir
+  provisioner "local-exec" {
+    working_dir = "${path.module}/functions"
+    interpreter = ["/bin/bash" ,"-c"]
+    command = <<-EOT
+      npm install;
+      npm run build
+    EOT
+  }
+}
+
+data "archive_file" "functions_zip" {
+  depends_on  = [null_resource.functions_zip]
+  type        = "zip"
+  source_dir  = "${path.module}/functions"
+  output_path = "${path.module}/functions.zip"
+}
+
+# Lambda function to ingest newly added documents into knowledge base
 resource "aws_lambda_function" "ingest_lambda" {
-  function_name = "${var.stack_name}-IngestLambda"
-  role          = aws_iam_role.lambda_role.arn
-  handler       = "handler" # Update as per Lambda handler in compiled output
-  runtime       = "nodejs18.x"
-  memory_size   = 512
-  timeout       = 900 # 15 minutes
-  filename      = "./functions/ingest/ingestHandler.zip" # Prepackaged deployment package path
+  function_name    = "${var.stack_name}-IngestLambda"
+  role             = aws_iam_role.lambda_role.arn
+  handler          = "ingest.ingestHandler.handler" # Lambda handler in compiled output
+  runtime          = "nodejs18.x"
+  memory_size      = 512
+  timeout          = 900 # 15 minutes (ingestion can take some time)
+  filename         = "./functions.zip" # Prepackaged deployment package path
+  source_code_hash = data.archive_file.functions_zip.output_base64sha256
 
   environment {
     variables = {
@@ -32,15 +58,16 @@ resource "aws_lambda_function" "ingest_lambda" {
   }
 }
 
-# Lambda function to retrieve documents
+# Lambda function to retrieve documents from the knowledge base
 resource "aws_lambda_function" "retrieval_lambda" {
-  function_name = "${var.stack_name}-RetrievalLambda"
-  role          = aws_iam_role.lambda_role.arn
-  handler       = "handler" # Update as per Lambda handler in compiled output
-  runtime       = "nodejs18.x"
-  memory_size   = 512
-  timeout       = 900 # 15 minutes
-  filename      = "./functions/retrieval/retrievalHandler.zip" # Prepackaged deployment package path
+  function_name    = "${var.stack_name}-RetrievalLambda"
+  role             = aws_iam_role.lambda_role.arn
+  handler          = "retrieval.retrievalHandler.handler" # Lambda handler in compiled output
+  runtime          = "nodejs18.x"
+  memory_size      = 512
+  timeout          = 300 # 5 minutes
+  filename         = "./functions.zip" # Prepackaged deployment package path
+  source_code_hash = data.archive_file.functions_zip.output_base64sha256
 
   environment {
     variables = {
@@ -114,7 +141,8 @@ resource "aws_secretsmanager_secret" "mongodb_conn_secret" {
   name = var.mongodb_conn_secret
 }
 resource "aws_secretsmanager_secret_policy" "mongodb_conn_secret_policy" {
-  secret_arn = aws_secretsmanager_secret.mongodb_conn_secret.arn
+  count = var.mongodb_conn_secret != "" ? 1 : 0 # if variable is not empty
+  secret_arn = aws_secretsmanager_secret.mongodb_conn_secret[0].arn
 
   policy = jsonencode({
     Version = "2012-10-17",
@@ -125,7 +153,7 @@ resource "aws_secretsmanager_secret_policy" "mongodb_conn_secret_policy" {
           AWS = aws_iam_role.lambda_role.arn
         },
         Action    = "secretsmanager:GetSecretValue",
-        Resource  = aws_secretsmanager_secret.mongodb_conn_secret.arn
+        Resource  = aws_secretsmanager_secret.mongodb_conn_secret[0].arn
       }
     ]
   })
@@ -134,7 +162,7 @@ resource "aws_secretsmanager_secret_policy" "mongodb_conn_secret_policy" {
 # Trigger the lambda function whenever a new object is added
 # or removed from the bucket
 resource "aws_s3_bucket_notification" "bucket_notification" {
-  bucket = aws_s3_bucket.bucket.id
+  bucket = aws_s3_bucket.kb_bucket.id
 
   lambda_function {
     lambda_function_arn = aws_lambda_function.ingest_lambda.arn
@@ -142,6 +170,14 @@ resource "aws_s3_bucket_notification" "bucket_notification" {
   }
 
   depends_on = [aws_lambda_permission.allow_bucket]
+}
+# Allow the lambda functions to be invoked by S3 bucket
+resource "aws_lambda_permission" "allow_bucket" {
+  statement_id  = "AllowExecutionFromS3Bucket"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.ingest_lambda.arn
+  principal     = "s3.amazonaws.com"
+  source_arn    = aws_s3_bucket.kb_bucket.arn
 }
 
 output "bucket_name" {

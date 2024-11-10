@@ -71,10 +71,7 @@ This Lambda function serves as an entry point for performing hybrid searches (Ve
 2. **Install dependencies:**
 
     ```bash
-    cd functions/common/; npm install
-    cd ../ingest; npm install
-    cd ../retrieval; npm install
-    cd ../..
+    cd functions/; npm install; cd ..
     ```
 
 3. **Bootstrap the Terraform environment:**
@@ -83,9 +80,36 @@ This Lambda function serves as an entry point for performing hybrid searches (Ve
     terraform init
     ```
 
-4. **Deploy the Terraform stack:**
+4. **Configure AWS credentials**
+
+    Ensure your AWS and MongoDB Atlas credentials are set up.**
+
+    This can be done using environment variables:
+
+    ``` bash
+    export AWS_SECRET_ACCESS_KEY='<aws secret key>'
+    export AWS_ACCESS_KEY_ID='<aws key id>'
+    ```
+
+    ... or the `~/.aws/credentials` file.
+
+    ```
+    $ cat ~/.aws/credentials
+    [default]
+    aws_access_key_id = your key id
+    aws_secret_access_key = your secret key
+
+    ```
+    ... or follow as in the `variables.tf` file and create **terraform.tfvars** file with all the variable values, ex:
+    ```
+    access_key   = "<AWS_ACCESS_KEY_ID>"
+    secret_key   = "<AWS_SECRET_ACCESS_KEY>"
+    ```
+
+5. **Deploy the Terraform stack:**
 
     ```bash
+    terraform plan
     terraform apply
     ```
 
