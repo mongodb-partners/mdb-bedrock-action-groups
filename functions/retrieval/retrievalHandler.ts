@@ -16,7 +16,7 @@ let mdbHybridRetriever: MongoDBHybridRetriever | undefined;
  * @see https://docs.aws.amazon.com/bedrock/latest/userguide/agents-lambda.html
  * @param context
  */
-export const handler: Handler = async (event: BedrockAgentEvent, _context: Context) => {
+export const handler: BedrockAgentHandler = async (event: BedrockAgentEvent, _context: Context) => {
   console.info(event ?? 'Empty event');
 
   if (!mdbHybridRetriever) {
