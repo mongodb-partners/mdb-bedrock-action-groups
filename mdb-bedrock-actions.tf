@@ -43,7 +43,7 @@ data "archive_file" "functions_zip" {
 resource "aws_lambda_function" "ingest_lambda" {
   function_name    = "${var.stack_name}-IngestLambda"
   role             = aws_iam_role.lambda_role.arn
-  handler          = "ingest.ingestHandler.handler" # Lambda handler in compiled output
+  handler          = "ingest/ingestHandler.handler" # Lambda handler in compiled output
   runtime          = "nodejs18.x"
   memory_size      = 512
   timeout          = 900 # 15 minutes (ingestion can take some time)
@@ -56,13 +56,17 @@ resource "aws_lambda_function" "ingest_lambda" {
       MONGODB_CONN_SECRET = var.mongodb_conn_secret
     }
   }
+
+  logging_config {
+    log_format = "JSON"
+  }
 }
 
 # Lambda function to retrieve documents from the knowledge base
 resource "aws_lambda_function" "retrieval_lambda" {
   function_name    = "${var.stack_name}-RetrievalLambda"
   role             = aws_iam_role.lambda_role.arn
-  handler          = "retrieval.retrievalHandler.handler" # Lambda handler in compiled output
+  handler          = "retrieval/retrievalHandler.handler" # Lambda handler in compiled output
   runtime          = "nodejs18.x"
   memory_size      = 512
   timeout          = 300 # 5 minutes
@@ -76,6 +80,10 @@ resource "aws_lambda_function" "retrieval_lambda" {
       MONGODB_VEC_INDEX   = "vector_index"
       MONGODB_FTS_INDEX   = "text_index"
     }
+  }
+
+  logging_config {
+    log_format = "JSON"
   }
 }
 
@@ -136,13 +144,13 @@ resource "aws_lambda_permission" "allow_bedrock" {
 }
 
 # Grant the lambda function permissions to retrieve secret
-resource "aws_secretsmanager_secret" "mongodb_conn_secret" {
+data "aws_secretsmanager_secret" "mongodb_conn_secret" {
   count = var.mongodb_conn_secret != "" ? 1 : 0 # if variable is not empty
   name = var.mongodb_conn_secret
 }
 resource "aws_secretsmanager_secret_policy" "mongodb_conn_secret_policy" {
   count = var.mongodb_conn_secret != "" ? 1 : 0 # if variable is not empty
-  secret_arn = aws_secretsmanager_secret.mongodb_conn_secret[0].arn
+  secret_arn = data.aws_secretsmanager_secret.mongodb_conn_secret[0].arn
 
   policy = jsonencode({
     Version = "2012-10-17",
@@ -153,7 +161,7 @@ resource "aws_secretsmanager_secret_policy" "mongodb_conn_secret_policy" {
           AWS = aws_iam_role.lambda_role.arn
         },
         Action    = "secretsmanager:GetSecretValue",
-        Resource  = aws_secretsmanager_secret.mongodb_conn_secret[0].arn
+        Resource  = data.aws_secretsmanager_secret.mongodb_conn_secret[0].arn
       }
     ]
   })
