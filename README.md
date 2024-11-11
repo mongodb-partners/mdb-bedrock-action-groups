@@ -28,16 +28,14 @@ For more info and examples, check [Terraform MongoDB Atlas Provider](https://git
 
 ```plaintext
 .
-├── bin
-│   └── mdb-bedrock-actions.ts       # CDK App entry point
-├── lib
-│   └── mdb-bedrock-actions-stack.ts # The CDK stack
 ├── functions
+│   ├── package.json                 # Node.js dependencies
 │   ├── common                       # (shared modules)
 │   ├── ingest                       # Sync Lambda function code
 │   └── retrieval                    # Hybrid Search retrieval func code
-├── cdk.json                         # CDK configuration
-├── package.json                     # Node.js dependencies
+├── mdb-bedrock-actions.tf           # The bulk of the stack
+├── cloudwatch-logs.tf               # Resources for logging
+├── variables.tf                     # Expected variables
 └── README.md                        # Project documentation
 ```
 
