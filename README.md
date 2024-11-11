@@ -1,4 +1,4 @@
-# MongoDB Atlas Hybrid Search Action for Bedrock Agent - AWS CDK
+# MongoDB Atlas Hybrid Search Action for Bedrock Agent - Terraform
 
 This project demonstrates how to deploy a set of resources on AWS to implement a **MongoDB Hybrid-Search powered Retrieval-Augmented Generation (RAG) architecture**. The stack (`MdbBedrockActionsStack`) includes:
 
@@ -11,14 +11,16 @@ This project demonstrates how to deploy a set of resources on AWS to implement a
 
 ## Useful commands
 
-- `cdk deploy` deploy this stack to your default AWS account/region
-- `cdk diff` compare deployed stack with current state
-- `cdk synth` emits the synthesized CloudFormation template
+- `terraform init` initializes the Terraform project and downloads provider plugins
+- `terraform plan` creates an execution plan, showing proposed changes
+- `terraform apply` deploys the stack by applying the changes
+
+For more info and examples, check [Terraform MongoDB Atlas Provider](https://github.com/mongodb/terraform-provider-mongodbatlas/tree/master)
 
 ## Prerequisites
 
 - AWS CLI configured with appropriate permissions.
-- AWS CDK installed.
+- Terraform installed.
 - MongoDB Atlas account and API keys.
 - Node.js and npm installed.
 
@@ -69,19 +71,46 @@ This Lambda function serves as an entry point for performing hybrid searches (Ve
 2. **Install dependencies:**
 
     ```bash
-    npm install
+    cd functions/; npm install; cd ..
     ```
 
-3. **Bootstrap the CDK environment:**
+3. **Bootstrap the Terraform environment:**
 
     ```bash
-    cdk bootstrap
+    terraform init
     ```
 
-4. **Deploy the CDK stack:**
+4. **Configure AWS credentials**
+
+    Ensure your AWS and MongoDB Atlas credentials are set up.**
+
+    This can be done using environment variables:
+
+    ``` bash
+    export AWS_SECRET_ACCESS_KEY='<aws secret key>'
+    export AWS_ACCESS_KEY_ID='<aws key id>'
+    ```
+
+    ... or the `~/.aws/credentials` file.
+
+    ```
+    $ cat ~/.aws/credentials
+    [default]
+    aws_access_key_id = your key id
+    aws_secret_access_key = your secret key
+
+    ```
+    ... or follow as in the `variables.tf` file and create **terraform.tfvars** file with all the variable values, ex:
+    ```
+    access_key   = "<AWS_ACCESS_KEY_ID>"
+    secret_key   = "<AWS_SECRET_ACCESS_KEY>"
+    ```
+
+5. **Deploy the Terraform stack:**
 
     ```bash
-    cdk deploy
+    terraform plan
+    terraform apply
     ```
 
 ## Integrating with MongoDB Atlas
@@ -94,9 +123,25 @@ To integrate the Lambda functions with your existing MongoDB Atlas cluster, foll
     - Choose "Connect your application" and copy the connection string.
 
 2. **Set Environment Variables:**
-    - Set the `MONGODB_CONN_STRING` or `MONGODB_CONN_SECRET` environment variable on `lib/mdb-bedrock-actions-stack.ts`:
-       - **Opiton 1**: Update the `MONGODB_CONN_STRING` environment variable for the `ingestLambda` and `retrievalLambda` configurations with your MongoDB connection string.
-       - **Option 2 (Recommended):** Update `MONGODB_CONN_SECRET` environment variable for the `ingestLambda` and `retrievalLambda` configurations with a secret that contains your MongoDB connection string.
+    - Set the `mongodb_conn_string` or `mongodb_conn_secret` variables:
+       - **Opiton 1**: Update the `mongodb_conn_string` environment variable for the `ingestLambda` and `retrievalLambda` configurations with your MongoDB connection string.
+       - **Option 2 (Recommended):** Update `mongodb_conn_secret` environment variable for the `ingestLambda` and `retrievalLambda` configurations with a secret that contains your MongoDB connection string.
+
+    This can be done using environment variables:
+
+    ```bash
+    export TF_VAR_mongodb_conn_string="<atlas connection string>"
+    export TF_VAR_mongodb_conn_secret="<atlas secret in AWS Secret manager>"
+    ```
+
+    ... or follow as in the `variables.tf` file and create **terraform.tfvars** file with all the variable values, ex:
+
+    ```
+    access_key   = "<AWS_ACCESS_KEY_ID>"
+    secret_key   = "<AWS_SECRET_ACCESS_KEY>"
+    mongodb_conn_string   = "<MONGODB_CONN_STRING>"
+    mongodb_conn_secret  = "<MONGODB_CONN_SECRET>"
+    ```
 
 3. **Create Indexes:**
     - Ensure that your MongoDB collections have the necessary indexes for vector and full-text search. You can create these indexes using the MongoDB Atlas UI or via the MongoDB shell.
@@ -162,9 +207,9 @@ By following these steps, you can leverage Bedrock for the Foundation Models, Pr
 
 ## Conclusion
 
-This project provides an example of how to leverage a RAG architecture using AWS CDK, S3, MongoDB Atlas, and AWS Lambda. By integrating with Bedrock, you can enhance the architecture with advanced NLP capabilities and ensure robust and reliable responses.
+This project provides an example of how to leverage a RAG architecture using Terraform, S3, MongoDB Atlas, and AWS Lambda. By integrating with Bedrock, you can enhance the architecture with advanced NLP capabilities and ensure robust and reliable responses.
 
-For more information, refer to the [AWS CDK documentation](https://docs.aws.amazon.com/cdk/latest/guide/home.html) and [MongoDB Atlas documentation on Hybrid Search](https://www.mongodb.com/docs/atlas/atlas-vector-search/tutorials/reciprocal-rank-fusion/).
+For more information, refer to the [Terraform MongoDB Atlas Provider](https://github.com/mongodb/terraform-provider-mongodbatlas/tree/master) and [MongoDB Atlas documentation on Hybrid Search](https://www.mongodb.com/docs/atlas/atlas-vector-search/tutorials/reciprocal-rank-fusion/).
 
 <sup>
 This software distributed under the License is distributed on an "AS IS" BASIS,

@@ -2,6 +2,7 @@ import { Handler, Context } from "aws-lambda";
 import { MongoClient, ServerApiVersion } from "mongodb";
 import { MongoDBHybridRetriever } from "./MongoDBHybridRetriever";
 import { SecretRetreiver } from "../common/SecretRetriever";
+import type { BedrockAgentEvent, BedrockAgentResponse } from "./BedrockAgentEvent";
 
 type BedrockAgentHandler = (event: BedrockAgentEvent, context: Context) => Promise<BedrockAgentResponse>
 
@@ -15,7 +16,7 @@ let mdbHybridRetriever: MongoDBHybridRetriever | undefined;
  * @see https://docs.aws.amazon.com/bedrock/latest/userguide/agents-lambda.html
  * @param context
  */
-export const handler: Handler = async (event: BedrockAgentEvent, _context: Context) => {
+export const handler: BedrockAgentHandler = async (event: BedrockAgentEvent, _context: Context) => {
   console.info(event ?? 'Empty event');
 
   if (!mdbHybridRetriever) {

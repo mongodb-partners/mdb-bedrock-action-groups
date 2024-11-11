@@ -3,9 +3,11 @@
     "target": "ES2020",
     "module": "commonjs",
     "lib": [
-      "es2020",
+      "ESNext",
       "dom"
     ],
+    "esModuleInterop": true,
+    "skipLibCheck": true,
     "declaration": true,
     "strict": true,
     "noImplicitAny": true,
@@ -19,13 +21,6 @@
     "inlineSourceMap": true,
     "inlineSources": true,
     "experimentalDecorators": true,
-    "strictPropertyInitialization": false,
-    "typeRoots": [
-      "./node_modules/@types"
-    ]
-  },
-  "exclude": [
-    "node_modules",
-    "cdk.out"
-  ]
+    "strictPropertyInitialization": false
+  }
 }
